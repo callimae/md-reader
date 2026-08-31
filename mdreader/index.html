@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MD Reader</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="sidebar-header">
+          <span class="app-name">MD Reader</span>
+          <div class="header-actions">
+            <button id="new-post-btn" class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/>
+                <path d="M15 2v5h5"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+              </svg>
+            </button>
+            <button id="open-btn" class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+            <button id="publish-btn" class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+                <path d="M12 12v9"/>
+                <path d="m16 16-4-4-4 4"/>
+              </svg>
+            </button>
+            <button id="settings-btn" class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="recents"></div>
+      </aside>
+      <main id="main">
+        <button id="draft-pill" hidden></button>
+        <div id="content"></div>
+      </main>
+    </div>
+
+    <div id="settings-overlay" hidden>
+      <div id="settings-panel">
+        <h2 id="s-title"></h2>
+        <label class="s-row">
+          <span id="s-lang-label"></span>
+          <select id="s-lang">
+            <option value="pl">Polski</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <label class="s-row">
+          <span id="s-theme-label"></span>
+          <select id="s-theme">
+            <option value="system"></option>
+            <option value="light"></option>
+            <option value="dark"></option>
+          </select>
+        </label>
+        <div class="s-row s-col">
+          <span id="s-blog-label"></span>
+          <span class="s-blog-wrap">
+            <input id="s-blog" type="text" spellcheck="false" />
+            <button id="s-blog-browse"></button>
+          </span>
+        </div>
+        <label class="s-row">
+          <span id="s-font-label"></span>
+          <span class="s-font-wrap">
+            <input id="s-font" type="range" min="14" max="22" step="1" />
+            <span id="s-font-val"></span>
+          </span>
+        </label>
+        <button id="s-close"></button>
+      </div>
+    </div>
+
+    <div id="prompt-overlay" hidden>
+      <div id="prompt-panel">
+        <h2 id="p-title"></h2>
+        <input id="p-input" type="text" spellcheck="false" />
+        <div class="p-actions">
+          <button id="p-cancel" class="btn-secondary"></button>
+          <button id="p-ok" class="btn-primary"></button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

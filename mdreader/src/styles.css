@@ -423,6 +423,37 @@ body {
   border-color: var(--accent);
 }
 
+.p-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 0.92rem;
+}
+
+.p-row select {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.9rem;
+  min-width: 150px;
+}
+
+.p-row[hidden] {
+  display: none;
+}
+
+#p-path {
+  margin-top: 10px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+
 .p-actions {
   display: flex;
   justify-content: flex-end;

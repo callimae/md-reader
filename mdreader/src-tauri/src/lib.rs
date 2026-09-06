@@ -11,6 +11,19 @@ fn file_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
 }
 
+#[tauri::command]
+fn list_dirs(path: String) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            out.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
     // Git for Windows nie zawsze jest w PATH procesu uruchomionego z Eksploratora.
     let candidates = ["git", r"C:\Program Files\Git\cmd\git.exe"];
@@ -71,6 +84,7 @@ pub fn run() {
             read_file,
             write_file,
             file_exists,
+            list_dirs,
             git_publish
         ])
         .run(tauri::generate_context!())

@@ -17,9 +17,16 @@ interface Settings {
   theme: "system" | "light" | "dark";
   fontSize: number;
   blogPath: string;
+  lastSection: string;
 }
 
-const DEFAULT_SETTINGS: Settings = { lang: "pl", theme: "system", fontSize: 16, blogPath: "" };
+const DEFAULT_SETTINGS: Settings = {
+  lang: "pl",
+  theme: "system",
+  fontSize: 16,
+  blogPath: "",
+  lastSection: "wpisy",
+};
 
 // ---------- state ----------
 
@@ -104,6 +111,7 @@ function applyTexts() {
   $("#s-blog-label").textContent = t("blogFolder");
   $("#s-blog-browse").textContent = t("browse");
   $("#p-title").textContent = t("postTitlePrompt");
+  $("#p-section-label").textContent = t("sectionLabel");
   $("#p-ok").textContent = t("create");
   $("#p-cancel").textContent = t("cancel");
   $("#s-title").textContent = t("settingsTitle");
@@ -180,18 +188,49 @@ function initSettingsPanel() {
 
 // ---------- prompt modal ----------
 
-function promptModal(): Promise<string | null> {
+interface NewPostChoice {
+  title: string;
+  section: string;
+}
+
+function newPostModal(sections: string[]): Promise<NewPostChoice | null> {
   const overlay = $("#prompt-overlay");
   const input = $<HTMLInputElement>("#p-input");
+  const sectionRow = $("#p-section").parentElement as HTMLElement;
+  const sectionSel = $<HTMLSelectElement>("#p-section");
+  const pathPreview = $("#p-path");
+
+  sectionSel.innerHTML = "";
+  for (const s of sections) {
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;
+    sectionSel.appendChild(opt);
+  }
+  sectionRow.hidden = sections.length === 0;
+  if (sections.includes(settings.lastSection)) sectionSel.value = settings.lastSection;
+
+  const updatePreview = () => {
+    const parts = [settings.blogPath, "content"];
+    if (sections.length) parts.push(sectionSel.value);
+    parts.push(slugify(input.value) + ".md");
+    pathPreview.textContent = parts.join("\\");
+  };
+
   return new Promise((resolve) => {
-    const done = (value: string | null) => {
+    const done = (value: NewPostChoice | null) => {
       overlay.hidden = true;
       $("#p-ok").removeEventListener("click", ok);
       $("#p-cancel").removeEventListener("click", cancel);
       input.removeEventListener("keydown", onKey);
+      input.removeEventListener("input", updatePreview);
+      sectionSel.removeEventListener("change", updatePreview);
       resolve(value);
     };
-    const ok = () => done(input.value.trim() || null);
+    const ok = () => {
+      const title = input.value.trim();
+      done(title ? { title, section: sections.length ? sectionSel.value : "" } : null);
+    };
     const cancel = () => done(null);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter") ok();
@@ -201,7 +240,10 @@ function promptModal(): Promise<string | null> {
     $("#p-ok").addEventListener("click", ok);
     $("#p-cancel").addEventListener("click", cancel);
     input.addEventListener("keydown", onKey);
+    input.addEventListener("input", updatePreview);
+    sectionSel.addEventListener("change", updatePreview);
     input.value = "";
+    updatePreview();
     overlay.hidden = false;
     input.focus();
   });
@@ -263,17 +305,33 @@ async function newPost() {
     return;
   }
   if (!(await confirmDiscard())) return;
-  const title = await promptModal();
-  if (!title) return;
 
-  const slug = slugify(title);
-  const path = `${settings.blogPath}\\content\\wpisy\\${slug}.md`;
+  let sections: string[] = [];
+  try {
+    sections = await invoke<string[]>("list_dirs", { path: `${settings.blogPath}\\content` });
+  } catch (e) {
+    alert(`${t("openFail")}\n${settings.blogPath}\\content\n${e}`);
+    return;
+  }
+
+  const choice = await newPostModal(sections);
+  if (!choice) return;
+  if (choice.section && choice.section !== settings.lastSection) {
+    settings.lastSection = choice.section;
+    saveSettings();
+  }
+
+  const slug = slugify(choice.title);
+  const dir = choice.section
+    ? `${settings.blogPath}\\content\\${choice.section}`
+    : `${settings.blogPath}\\content`;
+  const path = `${dir}\\${slug}.md`;
   if (await invoke<boolean>("file_exists", { path })) {
     alert(`${t("postExists")}\n${path}`);
     return;
   }
 
-  const fm = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ndate: ${localDate()}\ndraft: true\n---`;
+  const fm = `---\ntitle: "${choice.title.replace(/"/g, '\\"')}"\ndate: ${localDate()}\ndraft: true\n---`;
   filePath = path;
   blocks = [fm];
   try {

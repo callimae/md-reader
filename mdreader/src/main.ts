@@ -1,11 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save, confirm, message } from "@tauri-apps/plugin-dialog";
 import { load, Store } from "@tauri-apps/plugin-store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import MarkdownIt from "markdown-it";
+import hljs from "highlight.js/lib/common";
 import { makeT, type Lang } from "./i18n";
 import "./styles.css";
 
-const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: true,
+  highlight: (code, lang) => {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        const html = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+        return `<pre><code class="hljs language-${lang}">${html}</code></pre>`;
+      } catch {
+        /* fall through to default escaping */
+      }
+    }
+    return "";
+  },
+});
 
 interface RecentEntry {
   path: string;
@@ -454,6 +471,9 @@ function editBlock(index: number) {
       commitEdit();
     } else if (e.key === "Enter" && e.ctrlKey) {
       commitEdit();
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end");
     }
   });
   blockEl.replaceWith(ta);
@@ -576,6 +596,7 @@ async function openDialog() {
 
 async function saveFile() {
   if (editingIndex !== null) commitEdit();
+  if (filePath === null && blocks.length === 0) return;
   let target = filePath;
   if (!target) {
     target = await save({ filters: [{ name: t("markdownFiles"), extensions: ["md"] }] });
@@ -619,4 +640,20 @@ $("#draft-pill").addEventListener("click", toggleDraft);
   initSettingsPanel();
   applySettings();
   updateTitle();
+
+  const win = getCurrentWindow();
+
+  await win.onCloseRequested(async (event) => {
+    if (editingIndex !== null) commitEdit();
+    if (dirty && !(await confirm(t("unsavedMsg"), { title: t("unsavedTitle"), kind: "warning" }))) {
+      event.preventDefault();
+    }
+  });
+
+  await win.onDragDropEvent((event) => {
+    if (event.payload.type === "drop") {
+      const path = event.payload.paths.find((p) => /\.(md|markdown|txt)$/i.test(p));
+      if (path) openFile(path);
+    }
+  });
 })();

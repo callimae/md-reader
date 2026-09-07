@@ -130,10 +130,92 @@ body {
   color: var(--accent);
 }
 
-#recents {
+#sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--fg);
+}
+
+.tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+#recents,
+#tree {
   overflow-y: auto;
   flex: 1;
   padding: 8px 0 16px;
+}
+
+#recents[hidden],
+#tree[hidden] {
+  display: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.tree-row:hover {
+  background: var(--block-hover);
+}
+
+.tree-row.active {
+  background: var(--block-hover);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+
+.tree-row.is-dir {
+  color: var(--fg-muted);
+}
+
+.tree-chevron {
+  display: inline-block;
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 0.7rem;
+  transition: transform 0.12s;
+}
+
+.tree-row.expanded .tree-chevron {
+  transform: rotate(90deg);
+}
+
+.tree-empty {
+  padding: 20px 14px;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .folder-group {

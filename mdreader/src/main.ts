@@ -35,6 +35,7 @@ interface Settings {
   fontSize: number;
   blogPath: string;
   lastSection: string;
+  workspacePath: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -43,7 +44,15 @@ const DEFAULT_SETTINGS: Settings = {
   fontSize: 16,
   blogPath: "",
   lastSection: "wpisy",
+  workspacePath: "",
 };
+
+interface TreeNode {
+  name: string;
+  path: string;
+  dir: boolean;
+  children?: TreeNode[];
+}
 
 // ---------- state ----------
 
@@ -55,6 +64,8 @@ let filePath: string | null = null;
 let blocks: string[] = [];
 let dirty = false;
 let editingIndex: number | null = null;
+let tree: TreeNode[] = [];
+const expandedDirs = new Set<string>();
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const contentEl = $<HTMLDivElement>("#content");
@@ -125,6 +136,9 @@ function applyTexts() {
   $("#settings-btn").title = t("settingsTitle");
   $("#new-post-btn").title = t("newPostTitle");
   $("#publish-btn").title = t("publishTitle");
+  $("#open-folder-btn").title = t("openFolderTitle");
+  $("#tab-files").textContent = t("tabFiles");
+  $("#tab-recent").textContent = t("tabRecent");
   $("#s-blog-label").textContent = t("blogFolder");
   $("#s-blog-browse").textContent = t("browse");
   $("#p-title").textContent = t("postTitlePrompt");
@@ -228,7 +242,7 @@ function newPostModal(sections: string[]): Promise<NewPostChoice | null> {
   if (sections.includes(settings.lastSection)) sectionSel.value = settings.lastSection;
 
   const updatePreview = () => {
-    const parts = [settings.blogPath, "content"];
+    const parts = [activeRepo(), "content"];
     if (sections.length) parts.push(sectionSel.value);
     parts.push(slugify(input.value) + ".md");
     pathPreview.textContent = parts.join("\\");
@@ -316,7 +330,8 @@ function toggleDraft() {
 }
 
 async function newPost() {
-  if (!settings.blogPath) {
+  const repo = activeRepo();
+  if (!repo) {
     alert(t("publishNoBlog"));
     $("#settings-btn").click();
     return;
@@ -325,9 +340,9 @@ async function newPost() {
 
   let sections: string[] = [];
   try {
-    sections = await invoke<string[]>("list_dirs", { path: `${settings.blogPath}\\content` });
+    sections = await invoke<string[]>("list_dirs", { path: `${repo}\\content` });
   } catch (e) {
-    alert(`${t("openFail")}\n${settings.blogPath}\\content\n${e}`);
+    alert(`${t("openFail")}\n${repo}\\content\n${e}`);
     return;
   }
 
@@ -339,9 +354,7 @@ async function newPost() {
   }
 
   const slug = slugify(choice.title);
-  const dir = choice.section
-    ? `${settings.blogPath}\\content\\${choice.section}`
-    : `${settings.blogPath}\\content`;
+  const dir = choice.section ? `${repo}\\content\\${choice.section}` : `${repo}\\content`;
   const path = `${dir}\\${slug}.md`;
   if (await invoke<boolean>("file_exists", { path })) {
     alert(`${t("postExists")}\n${path}`);
@@ -356,6 +369,7 @@ async function newPost() {
     setDirty(false);
     await addRecent(path);
     render();
+    await loadTree();
     contentEl.parentElement!.scrollTop = 0;
   } catch (e) {
     alert(`${t("saveFail")}\n${e}`);
@@ -363,7 +377,8 @@ async function newPost() {
 }
 
 async function publishBlog() {
-  if (!settings.blogPath) {
+  const repo = activeRepo();
+  if (!repo) {
     alert(t("publishNoBlog"));
     $("#settings-btn").click();
     return;
@@ -375,7 +390,7 @@ async function publishBlog() {
   btn.classList.add("busy");
   try {
     const result = await invoke<string>("git_publish", {
-      repo: settings.blogPath,
+      repo,
       message: `Publikacja z MD Reader (${localDate()})`,
     });
     await message(result === "nothing" ? t("publishNothing") : t("published"), {
@@ -498,6 +513,124 @@ function commitEdit() {
   contentEl.parentElement!.scrollTop = scroll;
 }
 
+// ---------- workspace tree ----------
+
+function activeRepo(): string {
+  return settings.workspacePath || settings.blogPath;
+}
+
+function showTab(tab: "files" | "recent") {
+  $("#tab-files").classList.toggle("active", tab === "files");
+  $("#tab-recent").classList.toggle("active", tab === "recent");
+  $("#tree").hidden = tab !== "files";
+  $("#recents").hidden = tab !== "recent";
+}
+
+async function openFolder() {
+  const dir = await open({ directory: true, defaultPath: settings.workspacePath || undefined });
+  if (typeof dir !== "string") return;
+  settings.workspacePath = dir;
+  await saveSettings();
+  expandedDirs.clear();
+  await loadTree();
+  showTab("files");
+}
+
+async function loadTree() {
+  const root = settings.workspacePath;
+  if (!root) {
+    tree = [];
+    renderTree();
+    return;
+  }
+  try {
+    tree = await invoke<TreeNode[]>("list_tree", { path: root });
+  } catch (e) {
+    tree = [];
+    console.error(e);
+  }
+  // Domyślnie rozwiń katalog content — tam toczy się praca na blogu.
+  for (const node of tree) {
+    if (node.dir && node.name === "content") expandedDirs.add(node.path);
+  }
+  renderTree();
+}
+
+function expandAncestorsOf(path: string, nodes: TreeNode[]): boolean {
+  for (const node of nodes) {
+    if (!node.dir) {
+      if (node.path === path) return true;
+    } else if (node.children && expandAncestorsOf(path, node.children)) {
+      expandedDirs.add(node.path);
+      return true;
+    }
+  }
+  return false;
+}
+
+function renderTree() {
+  const treeEl = $("#tree");
+  treeEl.innerHTML = "";
+
+  if (!tree.length) {
+    const empty = document.createElement("div");
+    empty.className = "tree-empty";
+    const hint = document.createElement("span");
+    hint.textContent = t("treeEmpty");
+    const btn = document.createElement("button");
+    btn.className = "btn-primary";
+    btn.textContent = t("openFolderBtn");
+    btn.addEventListener("click", openFolder);
+    empty.append(hint, btn);
+    treeEl.appendChild(empty);
+    return;
+  }
+
+  if (filePath) expandAncestorsOf(filePath, tree);
+
+  const renderNodes = (nodes: TreeNode[], depth: number, parent: HTMLElement) => {
+    for (const node of nodes) {
+      const row = document.createElement("div");
+      row.className = "tree-row" + (node.dir ? " is-dir" : "");
+      row.style.paddingLeft = 8 + depth * 14 + "px";
+      row.title = node.path;
+
+      if (node.dir) {
+        const chev = document.createElement("span");
+        chev.className = "tree-chevron";
+        chev.textContent = "▶";
+        row.appendChild(chev);
+        if (expandedDirs.has(node.path)) row.classList.add("expanded");
+      } else {
+        const pad = document.createElement("span");
+        pad.className = "tree-chevron";
+        row.appendChild(pad);
+        if (node.path === filePath) row.classList.add("active");
+      }
+
+      const name = document.createElement("span");
+      name.textContent = node.name;
+      row.appendChild(name);
+
+      row.addEventListener("click", () => {
+        if (node.dir) {
+          if (expandedDirs.has(node.path)) expandedDirs.delete(node.path);
+          else expandedDirs.add(node.path);
+          renderTree();
+        } else {
+          openFile(node.path);
+        }
+      });
+
+      parent.appendChild(row);
+      if (node.dir && node.children && expandedDirs.has(node.path)) {
+        renderNodes(node.children, depth + 1, parent);
+      }
+    }
+  };
+  renderNodes(tree, 0, treeEl);
+}
+
 // ---------- recent files sidebar ----------
 
 async function addRecent(path: string) {
@@ -579,6 +712,7 @@ async function openFile(path: string) {
     setDirty(false);
     await addRecent(path);
     render();
+    renderTree();
     contentEl.parentElement!.scrollTop = 0;
   } catch (e) {
     await removeRecent(path);
@@ -629,17 +763,25 @@ window.addEventListener("keydown", (e) => {
 });
 
 $("#open-btn").addEventListener("click", openDialog);
+$("#open-folder-btn").addEventListener("click", openFolder);
 $("#new-post-btn").addEventListener("click", newPost);
 $("#publish-btn").addEventListener("click", publishBlog);
 $("#draft-pill").addEventListener("click", toggleDraft);
+$("#tab-files").addEventListener("click", () => showTab("files"));
+$("#tab-recent").addEventListener("click", () => showTab("recent"));
 
 (async () => {
   store = await load("recents.json", { autoSave: true });
   recents = (await store.get<RecentEntry[]>("recents")) ?? [];
   settings = { ...DEFAULT_SETTINGS, ...((await store.get<Partial<Settings>>("settings")) ?? {}) };
+  if (!settings.workspacePath && settings.blogPath) {
+    settings.workspacePath = settings.blogPath;
+  }
   initSettingsPanel();
   applySettings();
   updateTitle();
+  await loadTree();
+  showTab(tree.length ? "files" : "recent");
 
   const win = getCurrentWindow();
 

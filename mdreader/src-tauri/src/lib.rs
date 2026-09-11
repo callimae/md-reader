@@ -96,6 +96,81 @@ fn list_dirs(path: String) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+#[derive(serde::Serialize)]
+struct SearchHit {
+    path: String,
+    name: String,
+    line: u32,
+    snippet: String,
+}
+
+const SEARCH_LIMIT: usize = 300;
+
+fn search_walk(dir: &std::path::Path, q: &str, hits: &mut Vec<SearchHit>, depth: u32) {
+    if depth > 12 || hits.len() >= SEARCH_LIMIT {
+        return;
+    }
+    if let Ok(rd) = fs::read_dir(dir) {
+        for entry in rd.flatten() {
+            if hits.len() >= SEARCH_LIMIT {
+                return;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                if SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                search_walk(&path, q, hits, depth + 1);
+            } else {
+                let is_text = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| TEXT_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false);
+                if !is_text {
+                    continue;
+                }
+                if let Ok(content) = fs::read_to_string(&path) {
+                    for (i, line) in content.lines().enumerate() {
+                        if line.to_lowercase().contains(q) {
+                            hits.push(SearchHit {
+                                path: path.to_string_lossy().to_string(),
+                                name: name.clone(),
+                                line: (i + 1) as u32,
+                                snippet: line.trim().chars().take(120).collect(),
+                            });
+                            if hits.len() >= SEARCH_LIMIT {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn search_files(root: String, query: String) -> Result<Vec<SearchHit>, String> {
+    let q = query.to_lowercase();
+    let mut hits = Vec::new();
+    if q.chars().count() >= 2 {
+        search_walk(std::path::Path::new(&root), &q, &mut hits, 0);
+    }
+    Ok(hits)
+}
+
+#[tauri::command]
+fn startup_file() -> Option<String> {
+    std::env::args()
+        .nth(1)
+        .filter(|a| std::path::Path::new(a).is_file())
+}
+
 fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
     // Git for Windows nie zawsze jest w PATH procesu uruchomionego z Eksploratora.
     let candidates = ["git", r"C:\Program Files\Git\cmd\git.exe"];
@@ -159,6 +234,8 @@ pub fn run() {
             file_exists,
             list_dirs,
             list_tree,
+            search_files,
+            startup_file,
             git_publish
         ])
         .run(tauri::generate_context!())

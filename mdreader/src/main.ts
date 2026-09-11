@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open, save, confirm, message } from "@tauri-apps/plugin-dialog";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -23,6 +23,26 @@ const md = new MarkdownIt({
     return "";
   },
 });
+
+// Obrazki: ścieżki z repo (Hugo static/) i względne wobec pliku → asset protocol.
+const defaultImageRule =
+  md.renderer.rules.image ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const src = String(token.attrGet("src") ?? "");
+  if (src && !/^(https?:|data:|asset:|blob:)/i.test(src)) {
+    let abs: string | null = null;
+    if (src.startsWith("/")) {
+      const repo = activeRepo();
+      if (repo) abs = repo + "\\static" + src.replace(/\//g, "\\");
+    } else if (filePath) {
+      abs = dirName(filePath) + "\\" + src.replace(/\//g, "\\");
+    }
+    if (abs) token.attrSet("src", convertFileSrc(abs));
+  }
+  return defaultImageRule(tokens, idx, options, env, self);
+};
 
 interface RecentEntry {
   path: string;
@@ -66,6 +86,39 @@ let dirty = false;
 let editingIndex: number | null = null;
 let tree: TreeNode[] = [];
 const expandedDirs = new Set<string>();
+
+// ---------- document history (undo/redo) ----------
+
+const HISTORY_CAP = 100;
+let undoStack: string[] = [];
+let redoStack: string[] = [];
+
+function pushHistory() {
+  undoStack.push(docText());
+  if (undoStack.length > HISTORY_CAP) undoStack.shift();
+  redoStack = [];
+}
+
+function clearHistory() {
+  undoStack = [];
+  redoStack = [];
+}
+
+function undo() {
+  if (editingIndex !== null || !undoStack.length) return;
+  redoStack.push(docText());
+  blocks = splitBlocks(undoStack.pop()!);
+  setDirty(true);
+  render();
+}
+
+function redo() {
+  if (editingIndex !== null || !redoStack.length) return;
+  undoStack.push(docText());
+  blocks = splitBlocks(redoStack.pop()!);
+  setDirty(true);
+  render();
+}
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const contentEl = $<HTMLDivElement>("#content");
@@ -139,6 +192,12 @@ function applyTexts() {
   $("#open-folder-btn").title = t("openFolderTitle");
   $("#tab-files").textContent = t("tabFiles");
   $("#tab-recent").textContent = t("tabRecent");
+  $("#tab-search").textContent = t("tabSearch");
+  $<HTMLInputElement>("#wsearch-input").placeholder = t("searchRepoPlaceholder");
+  $<HTMLInputElement>("#search-input").placeholder = t("findPlaceholder");
+  $("#search-prev").title = t("findPrev");
+  $("#search-next").title = t("findNext");
+  $("#search-close").title = t("findClose");
   $("#s-blog-label").textContent = t("blogFolder");
   $("#s-blog-browse").textContent = t("browse");
   $("#p-title").textContent = t("postTitlePrompt");
@@ -324,6 +383,7 @@ function updateDraftPill() {
 function toggleDraft() {
   const { draft } = frontMatterInfo();
   if (draft === null) return;
+  pushHistory();
   blocks[0] = blocks[0].replace(/^draft:\s*(true|false)\s*$/m, `draft: ${!draft}`);
   setDirty(true);
   render();
@@ -364,6 +424,7 @@ async function newPost() {
   const fm = `---\ntitle: "${choice.title.replace(/"/g, '\\"')}"\ndate: ${localDate()}\ndraft: true\n---`;
   filePath = path;
   blocks = [fm];
+  clearHistory();
   try {
     await invoke("write_file", { path, content: docText() });
     setDirty(false);
@@ -462,6 +523,7 @@ function render() {
   });
   contentEl.appendChild(tail);
   updateDraftPill();
+  if (searchOpen) applySearch(true);
 }
 
 function autoSize(ta: HTMLTextAreaElement) {
@@ -504,7 +566,10 @@ function commitEdit() {
   editingIndex = null;
 
   const newSrc = ta.value;
-  if (newSrc !== blocks[index]) setDirty(true);
+  if (newSrc !== blocks[index]) {
+    pushHistory();
+    setDirty(true);
+  }
 
   const replacement = splitBlocks(newSrc);
   blocks.splice(index, 1, ...replacement);
@@ -519,11 +584,14 @@ function activeRepo(): string {
   return settings.workspacePath || settings.blogPath;
 }
 
-function showTab(tab: "files" | "recent") {
+function showTab(tab: "files" | "recent" | "search") {
   $("#tab-files").classList.toggle("active", tab === "files");
   $("#tab-recent").classList.toggle("active", tab === "recent");
+  $("#tab-search").classList.toggle("active", tab === "search");
   $("#tree").hidden = tab !== "files";
   $("#recents").hidden = tab !== "recent";
+  $("#wsearch").hidden = tab !== "search";
+  if (tab === "search") $<HTMLInputElement>("#wsearch-input").focus();
 }
 
 async function openFolder() {
@@ -631,6 +699,178 @@ function renderTree() {
   renderNodes(tree, 0, treeEl);
 }
 
+// ---------- in-document search ----------
+
+let searchOpen = false;
+let searchHits: HTMLElement[] = [];
+let searchIndex = 0;
+
+function clearSearchMarks() {
+  for (const m of Array.from(contentEl.querySelectorAll("mark.search-hit"))) {
+    const parent = m.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(m.textContent ?? ""), m);
+    parent.normalize();
+  }
+  searchHits = [];
+}
+
+function applySearch(keepIndex = false) {
+  const prevIndex = searchIndex;
+  clearSearchMarks();
+  const q = $<HTMLInputElement>("#search-input").value.toLowerCase();
+  if (!q) {
+    $("#search-count").textContent = "";
+    return;
+  }
+
+  const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) =>
+      (n as Text).parentElement?.closest(".add-block, textarea")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  for (const node of textNodes) {
+    let current = node;
+    let pos = current.data.toLowerCase().indexOf(q);
+    while (pos >= 0) {
+      const hit = current.splitText(pos);
+      const rest = hit.splitText(q.length);
+      const mark = document.createElement("mark");
+      mark.className = "search-hit";
+      hit.parentNode!.replaceChild(mark, hit);
+      mark.appendChild(hit);
+      searchHits.push(mark);
+      current = rest;
+      pos = current.data.toLowerCase().indexOf(q);
+    }
+  }
+
+  searchIndex = keepIndex ? Math.min(prevIndex, Math.max(searchHits.length - 1, 0)) : 0;
+  updateSearchCurrent(false);
+}
+
+function updateSearchCurrent(scroll = true) {
+  const count = $("#search-count");
+  if (!searchHits.length) {
+    count.textContent = "0/0";
+    return;
+  }
+  searchHits.forEach((m, i) => m.classList.toggle("current", i === searchIndex));
+  count.textContent = `${searchIndex + 1}/${searchHits.length}`;
+  if (scroll) searchHits[searchIndex].scrollIntoView({ block: "center" });
+}
+
+function searchStep(delta: number) {
+  if (!searchHits.length) return;
+  searchIndex = (searchIndex + delta + searchHits.length) % searchHits.length;
+  updateSearchCurrent();
+}
+
+function openSearch() {
+  if (filePath === null) return;
+  searchOpen = true;
+  $("#search-bar").hidden = false;
+  $("#main").classList.add("searching");
+  const input = $<HTMLInputElement>("#search-input");
+  input.focus();
+  input.select();
+  applySearch();
+}
+
+function closeSearch() {
+  searchOpen = false;
+  $("#search-bar").hidden = true;
+  $("#main").classList.remove("searching");
+  clearSearchMarks();
+}
+
+// Skacze do bloku zawierającego daną linię pliku (linie liczone jak w docText()).
+function jumpToLine(line: number) {
+  let acc = 0;
+  for (let i = 0; i < blocks.length; i++) {
+    const len = blocks[i].split("\n").length;
+    if (line <= acc + len) {
+      const el = contentEl.querySelector(`.block[data-index="${i}"]`);
+      el?.scrollIntoView({ block: "center" });
+      if (searchHits.length) {
+        const inBlock = searchHits.findIndex((m) => el?.contains(m));
+        if (inBlock >= 0) {
+          searchIndex = inBlock;
+          updateSearchCurrent();
+        }
+      }
+      return;
+    }
+    acc += len + 1; // +1 za pustą linię między blokami
+  }
+}
+
+// ---------- workspace search ----------
+
+interface SearchHit {
+  path: string;
+  name: string;
+  line: number;
+  snippet: string;
+}
+
+let wsearchTimer: number | undefined;
+
+async function runWorkspaceSearch() {
+  const resultsEl = $("#wsearch-results");
+  const query = $<HTMLInputElement>("#wsearch-input").value.trim();
+  const root = activeRepo();
+  if (query.length < 2) {
+    resultsEl.innerHTML = `<div class="wsearch-empty">${t("searchTooShort")}</div>`;
+    return;
+  }
+  if (!root) {
+    resultsEl.innerHTML = `<div class="wsearch-empty">${t("treeEmpty")}</div>`;
+    return;
+  }
+  let hits: SearchHit[] = [];
+  try {
+    hits = await invoke<SearchHit[]>("search_files", { root, query });
+  } catch (e) {
+    console.error(e);
+  }
+  resultsEl.innerHTML = "";
+  if (!hits.length) {
+    resultsEl.innerHTML = `<div class="wsearch-empty">${t("searchNoResults")}</div>`;
+    return;
+  }
+
+  let lastPath = "";
+  for (const hit of hits) {
+    if (hit.path !== lastPath) {
+      lastPath = hit.path;
+      const file = document.createElement("div");
+      file.className = "wsearch-file";
+      file.textContent = hit.name;
+      file.title = hit.path;
+      resultsEl.appendChild(file);
+    }
+    const row = document.createElement("div");
+    row.className = "wsearch-hit";
+    const lineNo = document.createElement("span");
+    lineNo.className = "line-no";
+    lineNo.textContent = String(hit.line);
+    row.append(lineNo, document.createTextNode(hit.snippet));
+    row.title = hit.snippet;
+    row.addEventListener("click", async () => {
+      await openFile(hit.path);
+      $<HTMLInputElement>("#search-input").value = query;
+      openSearch();
+      jumpToLine(hit.line);
+    });
+    resultsEl.appendChild(row);
+  }
+}
+
 // ---------- recent files sidebar ----------
 
 async function addRecent(path: string) {
@@ -709,6 +949,7 @@ async function openFile(path: string) {
     const text = await invoke<string>("read_file", { path });
     filePath = path;
     blocks = splitBlocks(text);
+    clearHistory();
     setDirty(false);
     await addRecent(path);
     render();
@@ -759,6 +1000,25 @@ window.addEventListener("keydown", (e) => {
   } else if (e.ctrlKey && e.key.toLowerCase() === "n") {
     e.preventDefault();
     newPost();
+  } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    showTab("search");
+  } else if (e.ctrlKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    openSearch();
+  } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "z" && editingIndex === null) {
+    e.preventDefault();
+    undo();
+  } else if (
+    (e.ctrlKey && e.key.toLowerCase() === "y") ||
+    (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "z")
+  ) {
+    if (editingIndex === null) {
+      e.preventDefault();
+      redo();
+    }
+  } else if (e.key === "Escape" && searchOpen) {
+    closeSearch();
   }
 });
 
@@ -769,6 +1029,22 @@ $("#publish-btn").addEventListener("click", publishBlog);
 $("#draft-pill").addEventListener("click", toggleDraft);
 $("#tab-files").addEventListener("click", () => showTab("files"));
 $("#tab-recent").addEventListener("click", () => showTab("recent"));
+$("#tab-search").addEventListener("click", () => showTab("search"));
+
+$<HTMLInputElement>("#wsearch-input").addEventListener("input", () => {
+  window.clearTimeout(wsearchTimer);
+  wsearchTimer = window.setTimeout(runWorkspaceSearch, 300);
+});
+
+$<HTMLInputElement>("#search-input").addEventListener("input", () => applySearch());
+$<HTMLInputElement>("#search-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") searchStep(e.shiftKey ? -1 : 1);
+  else if (e.key === "Escape") closeSearch();
+  e.stopPropagation();
+});
+$("#search-prev").addEventListener("click", () => searchStep(-1));
+$("#search-next").addEventListener("click", () => searchStep(1));
+$("#search-close").addEventListener("click", closeSearch);
 
 (async () => {
   store = await load("recents.json", { autoSave: true });
@@ -782,6 +1058,13 @@ $("#tab-recent").addEventListener("click", () => showTab("recent"));
   updateTitle();
   await loadTree();
   showTab(tree.length ? "files" : "recent");
+
+  try {
+    const startFile = await invoke<string | null>("startup_file");
+    if (startFile) await openFile(startFile);
+  } catch (e) {
+    console.error(e);
+  }
 
   const win = getCurrentWindow();
 

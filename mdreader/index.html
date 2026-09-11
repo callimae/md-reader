@@ -50,11 +50,25 @@
         <div id="sidebar-tabs">
           <button id="tab-files" class="tab"></button>
           <button id="tab-recent" class="tab"></button>
+          <button id="tab-search" class="tab"></button>
         </div>
         <div id="tree"></div>
         <div id="recents" hidden></div>
+        <div id="wsearch" hidden>
+          <div id="wsearch-box">
+            <input id="wsearch-input" type="text" spellcheck="false" />
+          </div>
+          <div id="wsearch-results"></div>
+        </div>
       </aside>
       <main id="main">
+        <div id="search-bar" hidden>
+          <input id="search-input" type="text" spellcheck="false" />
+          <span id="search-count"></span>
+          <button id="search-prev" class="mini-btn">▲</button>
+          <button id="search-next" class="mini-btn">▼</button>
+          <button id="search-close" class="mini-btn">✕</button>
+        </div>
         <button id="draft-pill" hidden></button>
         <div id="content"></div>
       </main>

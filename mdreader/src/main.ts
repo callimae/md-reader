@@ -1,5 +1,5 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { open, save, confirm, message } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import MarkdownIt from "markdown-it";
@@ -141,6 +141,56 @@ function updateTitle() {
 function setDirty(v: boolean) {
   dirty = v;
   updateTitle();
+}
+
+// ---------- toasts & styled confirm ----------
+
+function toast(msg: string, kind: "info" | "success" | "error" = "info") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  window.setTimeout(
+    () => {
+      el.classList.remove("show");
+      window.setTimeout(() => el.remove(), 300);
+    },
+    kind === "error" ? 6500 : 3500,
+  );
+}
+
+function confirmModal(title: string, msg: string, okLabel: string): Promise<boolean> {
+  const overlay = $("#confirm-overlay");
+  $("#c-title").textContent = title;
+  $("#c-msg").textContent = msg;
+  $("#c-ok").textContent = okLabel;
+  $("#c-cancel").textContent = t("cancel");
+  return new Promise((resolve) => {
+    const done = (v: boolean) => {
+      overlay.hidden = true;
+      $("#c-ok").removeEventListener("click", ok);
+      $("#c-cancel").removeEventListener("click", cancel);
+      window.removeEventListener("keydown", onKey, true);
+      resolve(v);
+    };
+    const ok = () => done(true);
+    const cancel = () => done(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        cancel();
+      } else if (e.key === "Enter") {
+        e.stopPropagation();
+        ok();
+      }
+    };
+    $("#c-ok").addEventListener("click", ok);
+    $("#c-cancel").addEventListener("click", cancel);
+    window.addEventListener("keydown", onKey, true);
+    overlay.hidden = false;
+    $<HTMLButtonElement>("#c-cancel").focus();
+  });
 }
 
 // Splits markdown into top-level blocks on blank lines, keeping fenced code intact.
@@ -367,6 +417,33 @@ function frontMatterInfo(): { isFrontMatter: boolean; draft: boolean | null } {
   return { isFrontMatter: true, draft: m ? m[1] === "true" : null };
 }
 
+function wordsLabel(n: number): string {
+  if (settings.lang === "en") return n === 1 ? "word" : "words";
+  if (n === 1) return "słowo";
+  const d = n % 10;
+  const h = n % 100;
+  if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return "słowa";
+  return "słów";
+}
+
+function updateStatus() {
+  const el = $("#statusbar");
+  if (filePath === null) {
+    el.hidden = true;
+    return;
+  }
+  const { isFrontMatter } = frontMatterInfo();
+  const text = blocks
+    .slice(isFrontMatter ? 1 : 0)
+    .join("\n")
+    .replace(/`{3}[\s\S]*?`{3}/g, " ")
+    .replace(/[#>*_`[\]()!|-]/g, " ");
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const minutes = Math.max(1, Math.round(words / 200));
+  el.textContent = `${words} ${wordsLabel(words)} · ${minutes} ${t("minRead")}`;
+  el.hidden = false;
+}
+
 function updateDraftPill() {
   const pill = $<HTMLButtonElement>("#draft-pill");
   const { draft } = frontMatterInfo();
@@ -392,7 +469,7 @@ function toggleDraft() {
 async function newPost() {
   const repo = activeRepo();
   if (!repo) {
-    alert(t("publishNoBlog"));
+    toast(t("publishNoBlog"), "error");
     $("#settings-btn").click();
     return;
   }
@@ -402,7 +479,7 @@ async function newPost() {
   try {
     sections = await invoke<string[]>("list_dirs", { path: `${repo}\\content` });
   } catch (e) {
-    alert(`${t("openFail")}\n${repo}\\content\n${e}`);
+    toast(`${t("openFail")}\n${repo}\\content\n${e}`, "error");
     return;
   }
 
@@ -417,7 +494,7 @@ async function newPost() {
   const dir = choice.section ? `${repo}\\content\\${choice.section}` : `${repo}\\content`;
   const path = `${dir}\\${slug}.md`;
   if (await invoke<boolean>("file_exists", { path })) {
-    alert(`${t("postExists")}\n${path}`);
+    toast(`${t("postExists")}\n${path}`, "error");
     return;
   }
 
@@ -433,14 +510,14 @@ async function newPost() {
     await loadTree();
     contentEl.parentElement!.scrollTop = 0;
   } catch (e) {
-    alert(`${t("saveFail")}\n${e}`);
+    toast(`${t("saveFail")}\n${e}`, "error");
   }
 }
 
 async function publishBlog() {
   const repo = activeRepo();
   if (!repo) {
-    alert(t("publishNoBlog"));
+    toast(t("publishNoBlog"), "error");
     $("#settings-btn").click();
     return;
   }
@@ -454,11 +531,10 @@ async function publishBlog() {
       repo,
       message: `Publikacja z MD Reader (${localDate()})`,
     });
-    await message(result === "nothing" ? t("publishNothing") : t("published"), {
-      title: "MD Reader",
-    });
+    if (result === "nothing") toast(t("publishNothing"));
+    else toast(t("published"), "success");
   } catch (e) {
-    await message(`${t("publishFail")}\n${e}`, { title: "MD Reader", kind: "error" });
+    toast(`${t("publishFail")}\n${e}`, "error");
   } finally {
     btn.classList.remove("busy");
   }
@@ -478,6 +554,7 @@ function render() {
         <p>${t("welcomeLine2")}</p>
       </div>`;
     $("#draft-pill").hidden = true;
+    $("#statusbar").hidden = true;
     return;
   }
 
@@ -533,6 +610,7 @@ function render() {
   });
   contentEl.appendChild(tail);
   updateDraftPill();
+  updateStatus();
   if (searchOpen) applySearch(true);
 }
 
@@ -569,6 +647,38 @@ function clickToSourceOffset(blockEl: HTMLElement, source: string, e: MouseEvent
   return si;
 }
 
+function wrapSelection(ta: HTMLTextAreaElement, before: string, after: string) {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const sel = ta.value.slice(start, end);
+  ta.setRangeText(before + sel + after, start, end, "end");
+  ta.setSelectionRange(start + before.length, start + before.length + sel.length);
+  autoSize(ta);
+}
+
+// Enter na linii listy/cytatu kontynuuje prefiks; Enter na pustym punkcie go usuwa.
+function continueListOnEnter(ta: HTMLTextAreaElement): boolean {
+  const pos = ta.selectionStart;
+  if (pos !== ta.selectionEnd) return false;
+  const lineStart = ta.value.lastIndexOf("\n", pos - 1) + 1;
+  const line = ta.value.slice(lineStart, pos);
+  const m = line.match(/^(\s*)(>\s+|(\d+)([.)])\s+|[-*+]\s+(\[[ xX]\]\s+)?)/);
+  if (!m) return false;
+
+  const content = line.slice(m[0].length);
+  if (!content.trim()) {
+    // Pusty punkt — kończymy listę zamiast mnożyć wykropkowane linie.
+    ta.setRangeText("", lineStart, pos, "end");
+  } else {
+    let prefix = m[0];
+    if (m[3]) prefix = m[1] + (Number(m[3]) + 1) + m[4] + " ";
+    else if (m[5]) prefix = m[0].replace(/\[[xX]\]/, "[ ]");
+    ta.setRangeText("\n" + prefix, pos, pos, "end");
+  }
+  autoSize(ta);
+  return true;
+}
+
 function autoSize(ta: HTMLTextAreaElement) {
   ta.style.height = "auto";
   ta.style.height = ta.scrollHeight + 2 + "px";
@@ -591,9 +701,27 @@ function editBlock(index: number, caret?: number) {
       commitEdit();
     } else if (e.key === "Enter" && e.ctrlKey) {
       commitEdit();
+    } else if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+      if (continueListOnEnter(ta)) e.preventDefault();
     } else if (e.key === "Tab") {
       e.preventDefault();
       ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end");
+    } else if (e.ctrlKey && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      e.stopPropagation();
+      wrapSelection(ta, "**", "**");
+    } else if (e.ctrlKey && e.key.toLowerCase() === "i") {
+      e.preventDefault();
+      e.stopPropagation();
+      wrapSelection(ta, "*", "*");
+    } else if (e.ctrlKey && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      e.stopPropagation();
+      const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+      const start = ta.selectionStart;
+      ta.setRangeText(`[${sel}]()`, start, ta.selectionEnd, "end");
+      ta.setSelectionRange(start + sel.length + 3, start + sel.length + 3);
+      autoSize(ta);
     }
   });
   blockEl.replaceWith(ta);
@@ -983,7 +1111,7 @@ function renderSidebar() {
 
 async function confirmDiscard(): Promise<boolean> {
   if (!dirty) return true;
-  return confirm(t("unsavedMsg"), { title: t("unsavedTitle"), kind: "warning" });
+  return confirmModal(t("unsavedTitle"), t("unsavedMsg"), t("discard"));
 }
 
 async function openFile(path: string) {
@@ -1001,7 +1129,7 @@ async function openFile(path: string) {
     contentEl.parentElement!.scrollTop = 0;
   } catch (e) {
     await removeRecent(path);
-    alert(`${t("openFail")}\n${e}`);
+    toast(`${t("openFail")}\n${e}`, "error");
   }
 }
 
@@ -1028,7 +1156,7 @@ async function saveFile() {
     setDirty(false);
     renderSidebar();
   } catch (e) {
-    alert(`${t("saveFail")}\n${e}`);
+    toast(`${t("saveFail")}\n${e}`, "error");
   }
 }
 
@@ -1114,9 +1242,7 @@ $("#search-close").addEventListener("click", closeSearch);
 
   await win.onCloseRequested(async (event) => {
     if (editingIndex !== null) commitEdit();
-    if (dirty && !(await confirm(t("unsavedMsg"), { title: t("unsavedTitle"), kind: "warning" }))) {
-      event.preventDefault();
-    }
+    if (!(await confirmDiscard())) event.preventDefault();
   });
 
   await win.onDragDropEvent((event) => {

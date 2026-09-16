@@ -71,6 +71,7 @@
         </div>
         <button id="draft-pill" hidden></button>
         <div id="content"></div>
+        <div id="statusbar" hidden></div>
       </main>
     </div>
 
@@ -107,6 +108,19 @@
           </span>
         </label>
         <button id="s-close"></button>
+      </div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <div id="confirm-overlay" hidden>
+      <div id="confirm-panel">
+        <h2 id="c-title"></h2>
+        <p id="c-msg"></p>
+        <div class="p-actions">
+          <button id="c-cancel" class="btn-secondary"></button>
+          <button id="c-ok" class="btn-danger"></button>
+        </div>
       </div>
     </div>
 

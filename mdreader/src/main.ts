@@ -507,7 +507,17 @@ function render() {
     div.addEventListener("mousedown", (e) => {
       if ((e.target as HTMLElement).closest("a")) return;
       e.preventDefault();
-      editBlock(i);
+      const caret = clickToSourceOffset(div, blocks[i], e);
+      let target = i;
+      if (editingIndex !== null) {
+        // Zatwierdzenie edytowanego bloku może go rozbić na kilka —
+        // indeks klikniętego bloku przesuwa się o różnicę.
+        const wasBefore = editingIndex < i;
+        const before = blocks.length;
+        commitEdit();
+        if (wasBefore) target = i + (blocks.length - before);
+      }
+      editBlock(target, caret);
     });
     contentEl.appendChild(div);
   });
@@ -526,12 +536,45 @@ function render() {
   if (searchOpen) applySearch(true);
 }
 
+// Mapuje miejsce kliknięcia w wyrenderowanym bloku na offset w źródle markdown.
+// Heurystyka: tekst po renderze to źródło minus znaki składni, więc idziemy po
+// prefiksie klikniętego tekstu i doganiamy go w źródle, przeskakując składnię.
+function clickToSourceOffset(blockEl: HTMLElement, source: string, e: MouseEvent): number {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  const point = doc.caretRangeFromPoint?.(e.clientX, e.clientY);
+  if (!point || !blockEl.contains(point.startContainer)) return source.length;
+
+  const range = document.createRange();
+  range.selectNodeContents(blockEl);
+  range.setEnd(point.startContainer, point.startOffset);
+  const prefix = range.toString();
+
+  let si = 0;
+  for (const ch of prefix) {
+    if (/\s/.test(ch)) {
+      while (si < source.length && /\s/.test(source[si])) si++;
+      continue;
+    }
+    const guard = si;
+    while (si < source.length && source[si] !== ch) si++;
+    if (si >= source.length) {
+      // Znak z typografii (np. „ ” –) nie występuje w źródle — pomijamy go.
+      si = guard;
+      continue;
+    }
+    si++;
+  }
+  return si;
+}
+
 function autoSize(ta: HTMLTextAreaElement) {
   ta.style.height = "auto";
   ta.style.height = ta.scrollHeight + 2 + "px";
 }
 
-function editBlock(index: number) {
+function editBlock(index: number, caret?: number) {
   if (editingIndex !== null) commitEdit();
   const blockEl = contentEl.querySelector<HTMLDivElement>(`.block[data-index="${index}"]`);
   if (!blockEl) return;
@@ -556,7 +599,8 @@ function editBlock(index: number) {
   blockEl.replaceWith(ta);
   autoSize(ta);
   ta.focus();
-  ta.setSelectionRange(ta.value.length, ta.value.length);
+  const pos = Math.min(caret ?? ta.value.length, ta.value.length);
+  ta.setSelectionRange(pos, pos);
 }
 
 function commitEdit() {

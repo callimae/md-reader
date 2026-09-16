@@ -4,7 +4,7 @@ A lightweight markdown reader & editor for Windows, in the spirit of Typora — 
 
 > Wersja polska: [mdreader/README.md](mdreader/README.md)
 
-![MD Reader — block live-preview editing with a repository tree](docs/screenshot.png)
+![MD Reader — block live-preview editing with a repository tree](docs/screenshot-en.png)
 
 ## Why
 

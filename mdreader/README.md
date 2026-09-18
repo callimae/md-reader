@@ -8,17 +8,19 @@ Lekki czytnik i edytor markdown dla Windows, w duchu Typory — darmowy i otwart
 
 ## Dlaczego
 
-Typora stała się płatna, Obsidian to kombajn. MD Reader robi jedno: czytasz ładnie wyrenderowany markdown, klikasz akapit, a on zamienia się w edytowalne źródło dokładnie pod kursorem. Klikasz obok — wraca do widoku.
+Typora stała się płatna, Obsidian to kombajn. MD Reader robi jedno, ale dobrze: czytasz ładnie wyrenderowany markdown, klikasz akapit, a on zamienia się w edytowalne źródło dokładnie pod kursorem. Klikasz obok — wraca do widoku. A gdy wpis jest gotowy, publikujesz go do repozytorium git swojego bloga bez wychodzenia z aplikacji.
+
+<img src="../docs/newpost-pl.png" alt="Okno nowego wpisu — wybór sekcji i podgląd ścieżki docelowej" width="480">
 
 ## Funkcje
 
 - **Edycja blokowa z podglądem na żywo** — dokument jest wyrenderowany; kliknięty blok pokazuje surowy markdown, z kursorem w miejscu kliknięcia. `Esc` anuluje, `Ctrl+Enter` (albo klik obok) zatwierdza.
 - **Tryb repozytorium** — otwórz folder i przeglądaj drzewo plików markdown w panelu bocznym (`.git`, `node_modules` i katalogi wynikowe są pomijane). Otwarty folder wraca po restarcie.
 - **Ostatnie pliki** — pogrupowane po folderach, o jedno kliknięcie.
-- **Integracja z blogiem Hugo** — utwórz wpis (`Ctrl+N`) z gotowym front matter w dowolnej sekcji `content/`, przełącz `draft` jednym kliknięciem i opublikuj wbudowanym `git add / commit / push` — bez terminala.
+- **Publikowanie na blogu opartym na git** — utwórz wpis (`Ctrl+N`) z gotowym front matter w dowolnej sekcji `content/`, przełącz `draft` jednym kliknięciem i opublikuj wbudowanym `git add / commit / push` — bez terminala. Działa z każdym generatorem stron statycznych, którego wpisy to markdown z front matter w repozytorium git: **Hugo, Jekyll, Astro, Eleventy, Zola, Gatsby** i podobne.
 - **Wyszukiwanie** — `Ctrl+F` w dokumencie (podświetlone trafienia, Enter przeskakuje), `Ctrl+Shift+F` po całym repozytorium.
 - **Cofanie na poziomie dokumentu** — `Ctrl+Z` / `Ctrl+Y` działa też między zatwierdzonymi edycjami bloków.
-- **Obrazki z repo** — ścieżki Hugo `/images/…` rozwiązują się względem `static/`, ścieżki względne — względem otwartego pliku.
+- **Obrazki z repo** — ścieżki bezwzględne `/images/…` rozwiązują się względem `static/` (układ Hugo), ścieżki względne — względem otwartego pliku.
 - **Skróty formatowania** — `Ctrl+B` / `Ctrl+I` / `Ctrl+K` (pogrubienie, kursywa, link); Enter kontynuuje listy i cytaty.
 - **Kolorowanie składni** w blokach kodu, dopasowane do motywu jasnego i ciemnego.
 - **Dopracowane od początku** — panel ustawień (język PL/EN, motyw, rozmiar tekstu), zapamiętywanie stanu okna, przeciągnij i upuść, ochrona przed utratą zmian, licznik słów.

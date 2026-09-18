@@ -8,17 +8,19 @@ A lightweight markdown reader & editor for Windows, in the spirit of Typora — 
 
 ## Why
 
-Typora went paid, Obsidian is a kitchen sink. MD Reader does one thing: you read beautiful rendered markdown, click a paragraph, and it turns into editable source right under your cursor. Click away and it renders back.
+Typora went paid, Obsidian is a kitchen sink. MD Reader does one thing well: you read beautiful rendered markdown, click a paragraph, and it turns into editable source right under your cursor. Click away and it renders back. And when a post is ready, you publish it to your blog's git repo without leaving the app.
+
+<img src="docs/newpost-en.png" alt="New post dialog — pick a section, preview the target path" width="480">
 
 ## Features
 
 - **Block live-preview editing** — the document is rendered; the block you click shows its raw markdown. `Esc` cancels, `Ctrl+Enter` (or clicking elsewhere) commits.
 - **Repository mode** — open a folder and browse its markdown tree in the sidebar (`.git`, `node_modules` and build output are filtered out). Your workspace is remembered across restarts.
 - **Recent files** — grouped by folder, one click away.
-- **Hugo blog integration** — create a post (`Ctrl+N`) with proper front matter into any `content/<section>/`, toggle `draft` with one click, and publish with a built-in `git add / commit / push` — no terminal needed.
+- **Publish to a git-based blog** — create a post (`Ctrl+N`) with proper front matter into any `content/<section>/`, toggle `draft` with one click, and publish with a built-in `git add / commit / push` — no terminal needed. Works with any static-site generator whose posts are markdown-with-front-matter in a git repo: **Hugo, Jekyll, Astro, Eleventy, Zola, Gatsby**, and the like.
 - **Search** — `Ctrl+F` inside the document (highlighted matches, Enter cycles), `Ctrl+Shift+F` across the whole repository.
 - **Document-level undo/redo** — `Ctrl+Z` / `Ctrl+Y` works across committed block edits, not just inside one.
-- **Local images render** — Hugo-style `/images/…` paths resolve against the repo's `static/`, relative paths against the open file.
+- **Local images render** — absolute `/images/…` paths resolve against the repo's `static/` (Hugo layout), relative paths against the open file.
 - **Open with…** — pass a file as a CLI argument (or associate `.md` with the app) and it opens on start.
 - **Syntax highlighting** in fenced code blocks, themed for light and dark mode.
 - **Polished by default** — settings panel (language PL/EN, theme, font size), window state persistence, drag & drop to open, unsaved-changes guard.

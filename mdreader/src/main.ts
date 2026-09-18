@@ -88,6 +88,7 @@ let editingIndex: number | null = null;
 let tree: TreeNode[] = [];
 const expandedDirs = new Set<string>();
 let demo = false;
+let homeDir = "";
 
 // ---------- document history (undo/redo) ----------
 
@@ -174,6 +175,19 @@ const recentsEl = $<HTMLDivElement>("#recents");
 
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const dirName = (p: string) => p.slice(0, p.length - fileName(p).length - 1);
+
+// Skraca katalog do czytelnej postaci: profil użytkownika → "~", a długie
+// ścieżki do dwóch ostatnich segmentów ("…\Documents\blog").
+function prettyDir(dir: string): string {
+  const home = homeDir;
+  let out = dir;
+  if (home && out.toLowerCase().startsWith(home.toLowerCase())) {
+    out = "~" + out.slice(home.length);
+  }
+  const parts = out.split(/[\\/]/).filter(Boolean);
+  if (parts.length > 3) return "…\\" + parts.slice(-2).join("\\");
+  return out;
+}
 
 function docText(): string {
   return blocks.join("\n\n") + (blocks.length ? "\n" : "");
@@ -276,6 +290,7 @@ function applySettings() {
   }
   document.documentElement.style.setProperty("--doc-font-size", settings.fontSize + "px");
   applyTexts();
+  updateWorkspaceName();
   renderSidebar();
   render();
 }
@@ -802,6 +817,14 @@ function activeRepo(): string {
   return settings.workspacePath || settings.blogPath;
 }
 
+function updateWorkspaceName() {
+  const el = $("#workspace-name");
+  const repo = settings.workspacePath;
+  el.textContent = repo ? fileName(repo) : t("noWorkspace");
+  el.title = repo || t("openFolderTitle");
+  el.classList.toggle("empty", !repo);
+}
+
 function showTab(tab: "files" | "recent" | "search") {
   $("#tab-files").classList.toggle("active", tab === "files");
   $("#tab-recent").classList.toggle("active", tab === "recent");
@@ -818,6 +841,7 @@ async function openFolder() {
   settings.workspacePath = dir;
   await saveSettings();
   expandedDirs.clear();
+  updateWorkspaceName();
   await loadTree();
   showTab("files");
 }
@@ -1122,7 +1146,7 @@ function renderSidebar() {
     group.className = "folder-group";
     const label = document.createElement("div");
     label.className = "folder-name";
-    label.textContent = dir;
+    label.textContent = prettyDir(dir);
     label.title = dir;
     group.appendChild(label);
 
@@ -1242,6 +1266,7 @@ window.addEventListener("keydown", (e) => {
 
 $("#open-btn").addEventListener("click", openDialog);
 $("#open-folder-btn").addEventListener("click", openFolder);
+$("#workspace-name").addEventListener("click", openFolder);
 $("#new-post-btn").addEventListener("click", newPost);
 $("#publish-btn").addEventListener("click", publishBlog);
 $("#draft-pill").addEventListener("click", toggleDraft);
@@ -1266,6 +1291,7 @@ $("#search-close").addEventListener("click", closeSearch);
 
 (async () => {
   demo = await invoke<boolean>("is_demo").catch(() => false);
+  homeDir = demo ? "C:\\Users\\writer" : await invoke<string>("home_dir").catch(() => "");
 
   if (demo) {
     settings = { ...DEFAULT_SETTINGS, ...DEMO_SETTINGS };

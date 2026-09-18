@@ -100,6 +100,24 @@ body {
 .app-name {
   font-weight: 600;
   font-size: 0.95rem;
+  cursor: pointer;
+  padding: 3px 6px;
+  margin-left: -6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.app-name:hover {
+  background: var(--block-hover);
+  color: var(--accent);
+}
+
+.app-name.empty {
+  color: var(--fg-muted);
+  font-weight: 400;
 }
 
 .header-actions {
@@ -371,15 +389,12 @@ mark.search-hit.current {
 
 .folder-name {
   padding: 4px 14px;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
 }
 
 .recent-item {

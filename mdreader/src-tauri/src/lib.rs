@@ -176,6 +176,13 @@ fn is_demo() -> bool {
     std::env::args().any(|a| a == "--demo")
 }
 
+#[tauri::command]
+fn home_dir() -> String {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default()
+}
+
 fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
     // Git for Windows nie zawsze jest w PATH procesu uruchomionego z Eksploratora.
     let candidates = ["git", r"C:\Program Files\Git\cmd\git.exe"];
@@ -242,6 +249,7 @@ pub fn run() {
             search_files,
             startup_file,
             is_demo,
+            home_dir,
             git_publish
         ])
         .run(tauri::generate_context!())

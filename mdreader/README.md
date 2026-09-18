@@ -18,12 +18,12 @@ Typora stała się płatna, Obsidian to kombajn. MD Reader robi jedno, ale dobrz
 - **Tryb repozytorium** — otwórz folder i przeglądaj drzewo plików markdown w panelu bocznym (`.git`, `node_modules` i katalogi wynikowe są pomijane). Otwarty folder wraca po restarcie.
 - **Ostatnie pliki** — pogrupowane po folderach, o jedno kliknięcie.
 - **Publikowanie na blogu opartym na git** — utwórz wpis (`Ctrl+N`) z gotowym front matter w dowolnej sekcji `content/`, przełącz `draft` jednym kliknięciem i opublikuj wbudowanym `git add / commit / push` — bez terminala. Działa z każdym generatorem stron statycznych, którego wpisy to markdown z front matter w repozytorium git: **Hugo, Jekyll, Astro, Eleventy, Zola, Gatsby** i podobne.
-- **Wyszukiwanie** — `Ctrl+F` w dokumencie (podświetlone trafienia, Enter przeskakuje), `Ctrl+Shift+F` po całym repozytorium.
-- **Cofanie na poziomie dokumentu** — `Ctrl+Z` / `Ctrl+Y` działa też między zatwierdzonymi edycjami bloków.
-- **Obrazki z repo** — ścieżki bezwzględne `/images/…` rozwiązują się względem `static/` (układ Hugo), ścieżki względne — względem otwartego pliku.
+- **Wyszukiwanie po całym repozytorium** — `Ctrl+Shift+F` przeszukuje każdy plik w otwartym folderze, a wyniki w panelu bocznym skaczą prosto do trafionej linii.
+- **Cofanie przez bloki** — `Ctrl+Z` / `Ctrl+Y` przechodzi przez zatwierdzone edycje bloków, więc model blokowy nigdy nie odbiera Ci historii dokumentu.
 - **Skróty formatowania** — `Ctrl+B` / `Ctrl+I` / `Ctrl+K` (pogrubienie, kursywa, link); Enter kontynuuje listy i cytaty.
+- **Obrazki z repo** — ścieżki bezwzględne `/images/…` rozwiązują się względem `static/` (układ Hugo), ścieżki względne — względem otwartego pliku.
 - **Kolorowanie składni** w blokach kodu, dopasowane do motywu jasnego i ciemnego.
-- **Dopracowane od początku** — panel ustawień (język PL/EN, motyw, rozmiar tekstu), zapamiętywanie stanu okna, przeciągnij i upuść, ochrona przed utratą zmian, licznik słów.
+- **Dopracowane od początku** — panel ustawień (język PL/EN, motyw, rozmiar tekstu), wyszukiwanie w dokumencie (`Ctrl+F`), przeciągnij i upuść, zapamiętywanie stanu okna, ochrona przed utratą zmian, licznik słów.
 
 ## Instalacja
 

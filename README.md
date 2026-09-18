@@ -18,12 +18,12 @@ Typora went paid, Obsidian is a kitchen sink. MD Reader does one thing well: you
 - **Repository mode** — open a folder and browse its markdown tree in the sidebar (`.git`, `node_modules` and build output are filtered out). Your workspace is remembered across restarts.
 - **Recent files** — grouped by folder, one click away.
 - **Publish to a git-based blog** — create a post (`Ctrl+N`) with proper front matter into any `content/<section>/`, toggle `draft` with one click, and publish with a built-in `git add / commit / push` — no terminal needed. Works with any static-site generator whose posts are markdown-with-front-matter in a git repo: **Hugo, Jekyll, Astro, Eleventy, Zola, Gatsby**, and the like.
-- **Search** — `Ctrl+F` inside the document (highlighted matches, Enter cycles), `Ctrl+Shift+F` across the whole repository.
-- **Document-level undo/redo** — `Ctrl+Z` / `Ctrl+Y` works across committed block edits, not just inside one.
+- **Repository-wide search** — `Ctrl+Shift+F` searches every file in the open folder, with results in the sidebar that jump straight to the matching line.
+- **Undo across blocks** — `Ctrl+Z` / `Ctrl+Y` steps through committed block edits, so the block model never costs you your document history.
+- **Formatting shortcuts** — `Ctrl+B` / `Ctrl+I` / `Ctrl+K` (bold, italic, link); Enter continues lists and quotes.
 - **Local images render** — absolute `/images/…` paths resolve against the repo's `static/` (Hugo layout), relative paths against the open file.
-- **Open with…** — pass a file as a CLI argument (or associate `.md` with the app) and it opens on start.
 - **Syntax highlighting** in fenced code blocks, themed for light and dark mode.
-- **Polished by default** — settings panel (language PL/EN, theme, font size), window state persistence, drag & drop to open, unsaved-changes guard.
+- **Polished by default** — settings panel (language PL/EN, theme, font size), in-document find (`Ctrl+F`), drag & drop, window-state and unsaved-changes handling, open-with support for `.md` files.
 
 ## Install
 

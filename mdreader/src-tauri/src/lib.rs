@@ -167,8 +167,13 @@ fn search_files(root: String, query: String) -> Result<Vec<SearchHit>, String> {
 #[tauri::command]
 fn startup_file() -> Option<String> {
     std::env::args()
-        .nth(1)
-        .filter(|a| std::path::Path::new(a).is_file())
+        .skip(1)
+        .find(|a| std::path::Path::new(a).is_file())
+}
+
+#[tauri::command]
+fn is_demo() -> bool {
+    std::env::args().any(|a| a == "--demo")
 }
 
 fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
@@ -236,6 +241,7 @@ pub fn run() {
             list_tree,
             search_files,
             startup_file,
+            is_demo,
             git_publish
         ])
         .run(tauri::generate_context!())

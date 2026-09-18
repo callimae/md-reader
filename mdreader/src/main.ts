@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js/lib/common";
 import { makeT, type Lang } from "./i18n";
+import { DEMO_TREE, DEMO_FILES, DEMO_SETTINGS, DEMO_SECTIONS, DEMO_OPEN } from "./demo";
 import "./styles.css";
 
 const md = new MarkdownIt({
@@ -86,6 +87,7 @@ let dirty = false;
 let editingIndex: number | null = null;
 let tree: TreeNode[] = [];
 const expandedDirs = new Set<string>();
+let demo = false;
 
 // ---------- document history (undo/redo) ----------
 
@@ -118,6 +120,50 @@ function redo() {
   blocks = splitBlocks(redoStack.pop()!);
   setDirty(true);
   render();
+}
+
+// W trybie demo wszystkie wywołania backendu dotykające dysku są zastępowane
+// odczytem z pamięci; zapis jest bezgłośnie pomijany.
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (demo) {
+    switch (cmd) {
+      case "read_file":
+        return (DEMO_FILES[args?.path as string] ?? "") as T;
+      case "write_file":
+        return undefined as T;
+      case "file_exists":
+        return (((args?.path as string) in DEMO_FILES) as unknown) as T;
+      case "list_tree":
+        return (DEMO_TREE as unknown) as T;
+      case "list_dirs":
+        return (DEMO_SECTIONS as unknown) as T;
+      case "search_files": {
+        const q = String(args?.query ?? "").toLowerCase();
+        const hits: { path: string; name: string; line: number; snippet: string }[] = [];
+        if (q.length >= 2) {
+          for (const [path, content] of Object.entries(DEMO_FILES)) {
+            content.split("\n").forEach((line, i) => {
+              if (line.toLowerCase().includes(q)) {
+                hits.push({
+                  path,
+                  name: path.split("\\").pop() ?? path,
+                  line: i + 1,
+                  snippet: line.trim().slice(0, 120),
+                });
+              }
+            });
+          }
+        }
+        return (hits as unknown) as T;
+      }
+      case "git_publish":
+        await new Promise((r) => setTimeout(r, 600));
+        return ("published" as unknown) as T;
+      default:
+        return undefined as T;
+    }
+  }
+  return invoke<T>(cmd, args);
 }
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -267,7 +313,7 @@ function applyTexts() {
 }
 
 async function saveSettings() {
-  await store.set("settings", settings);
+  if (!demo) await store.set("settings", settings);
   applySettings();
 }
 
@@ -477,7 +523,7 @@ async function newPost() {
 
   let sections: string[] = [];
   try {
-    sections = await invoke<string[]>("list_dirs", { path: `${repo}\\content` });
+    sections = await call<string[]>("list_dirs", { path: `${repo}\\content` });
   } catch (e) {
     toast(`${t("openFail")}\n${repo}\\content\n${e}`, "error");
     return;
@@ -493,7 +539,7 @@ async function newPost() {
   const slug = slugify(choice.title);
   const dir = choice.section ? `${repo}\\content\\${choice.section}` : `${repo}\\content`;
   const path = `${dir}\\${slug}.md`;
-  if (await invoke<boolean>("file_exists", { path })) {
+  if (await call<boolean>("file_exists", { path })) {
     toast(`${t("postExists")}\n${path}`, "error");
     return;
   }
@@ -527,7 +573,7 @@ async function publishBlog() {
   const btn = $("#publish-btn");
   btn.classList.add("busy");
   try {
-    const result = await invoke<string>("git_publish", {
+    const result = await call<string>("git_publish", {
       repo,
       message: `Publikacja z MD Reader (${localDate()})`,
     });
@@ -784,7 +830,7 @@ async function loadTree() {
     return;
   }
   try {
-    tree = await invoke<TreeNode[]>("list_tree", { path: root });
+    tree = await call<TreeNode[]>("list_tree", { path: root });
   } catch (e) {
     tree = [];
     console.error(e);
@@ -1006,7 +1052,7 @@ async function runWorkspaceSearch() {
   }
   let hits: SearchHit[] = [];
   try {
-    hits = await invoke<SearchHit[]>("search_files", { root, query });
+    hits = await call<SearchHit[]>("search_files", { root, query });
   } catch (e) {
     console.error(e);
   }
@@ -1047,13 +1093,13 @@ async function runWorkspaceSearch() {
 
 async function addRecent(path: string) {
   recents = [{ path, openedAt: Date.now() }, ...recents.filter((r) => r.path !== path)].slice(0, 50);
-  await store.set("recents", recents);
+  if (!demo) await store.set("recents", recents);
   renderSidebar();
 }
 
 async function removeRecent(path: string) {
   recents = recents.filter((r) => r.path !== path);
-  await store.set("recents", recents);
+  if (!demo) await store.set("recents", recents);
   renderSidebar();
 }
 
@@ -1118,7 +1164,7 @@ async function openFile(path: string) {
   if (path === filePath) return;
   if (!(await confirmDiscard())) return;
   try {
-    const text = await invoke<string>("read_file", { path });
+    const text = await call<string>("read_file", { path });
     filePath = path;
     blocks = splitBlocks(text);
     clearHistory();
@@ -1219,11 +1265,17 @@ $("#search-next").addEventListener("click", () => searchStep(1));
 $("#search-close").addEventListener("click", closeSearch);
 
 (async () => {
-  store = await load("recents.json", { autoSave: true });
-  recents = (await store.get<RecentEntry[]>("recents")) ?? [];
-  settings = { ...DEFAULT_SETTINGS, ...((await store.get<Partial<Settings>>("settings")) ?? {}) };
-  if (!settings.workspacePath && settings.blogPath) {
-    settings.workspacePath = settings.blogPath;
+  demo = await invoke<boolean>("is_demo").catch(() => false);
+
+  if (demo) {
+    settings = { ...DEFAULT_SETTINGS, ...DEMO_SETTINGS };
+  } else {
+    store = await load("recents.json", { autoSave: true });
+    recents = (await store.get<RecentEntry[]>("recents")) ?? [];
+    settings = { ...DEFAULT_SETTINGS, ...((await store.get<Partial<Settings>>("settings")) ?? {}) };
+    if (!settings.workspacePath && settings.blogPath) {
+      settings.workspacePath = settings.blogPath;
+    }
   }
   initSettingsPanel();
   applySettings();
@@ -1231,11 +1283,15 @@ $("#search-close").addEventListener("click", closeSearch);
   await loadTree();
   showTab(tree.length ? "files" : "recent");
 
-  try {
-    const startFile = await invoke<string | null>("startup_file");
-    if (startFile) await openFile(startFile);
-  } catch (e) {
-    console.error(e);
+  if (demo) {
+    await openFile(DEMO_OPEN);
+  } else {
+    try {
+      const startFile = await invoke<string | null>("startup_file");
+      if (startFile) await openFile(startFile);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   const win = getCurrentWindow();

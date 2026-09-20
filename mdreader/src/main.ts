@@ -12,6 +12,9 @@ const md = new MarkdownIt({
   html: false,
   linkify: true,
   typographer: true,
+  // Pojedynczy Enter ma dawać widoczne złamanie linii — inaczej dwie linie
+  // wpisane pod sobą renderują się jako jeden zlepiony akapit.
+  breaks: true,
   highlight: (code, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -109,10 +112,15 @@ function clearHistory() {
 
 function undo() {
   if (editingIndex !== null || !undoStack.length) return;
-  redoStack.push(docText());
+  const before = docText();
+  redoStack.push(before);
   blocks = splitBlocks(undoStack.pop()!);
   setDirty(true);
   render();
+  // Cofnięcie całego dokumentu potrafi zabrać dużo tekstu naraz — mów o tym
+  // głośno i dawaj drogę powrotną (Ctrl+Y), zamiast cicho kasować pracę.
+  const lost = before.length - docText().length;
+  if (lost > 80) toast(t("undoBig"), "info");
 }
 
 function redo() {
@@ -198,9 +206,22 @@ function updateTitle() {
   document.title = (dirty ? "● " : "") + name + (filePath ? " — MD Reader" : "");
 }
 
+let autosaveTimer: number | undefined;
+
 function setDirty(v: boolean) {
   dirty = v;
   updateTitle();
+  if (v) scheduleAutosave();
+}
+
+// Tekst nie może istnieć wyłącznie w pamięci aplikacji — po krótkiej przerwie
+// w pisaniu zmiany trafiają do pliku same.
+function scheduleAutosave() {
+  if (demo || !filePath) return;
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(() => {
+    if (dirty && filePath && editingIndex === null) saveFile();
+  }, 2000);
 }
 
 // ---------- toasts & styled confirm ----------
@@ -642,20 +663,34 @@ function render() {
     } else {
       div.innerHTML = md.render(src);
     }
+    // Edycję włącza dopiero kliknięcie bez przeciągnięcia — inaczej nie dałoby
+    // się swobodnie zaznaczać tekstu myszą (także przez kilka bloków).
     div.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
       if ((e.target as HTMLElement).closest("a")) return;
-      e.preventDefault();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
       const caret = clickToSourceOffset(div, blocks[i], e);
-      let target = i;
-      if (editingIndex !== null) {
-        // Zatwierdzenie edytowanego bloku może go rozbić na kilka —
-        // indeks klikniętego bloku przesuwa się o różnicę.
-        const wasBefore = editingIndex < i;
-        const before = blocks.length;
-        commitEdit();
-        if (wasBefore) target = i + (blocks.length - before);
-      }
-      editBlock(target, caret);
+
+      const onUp = (up: MouseEvent) => {
+        document.removeEventListener("mouseup", onUp, true);
+        const moved = Math.abs(up.clientX - startX) > 4 || Math.abs(up.clientY - startY) > 4;
+        const selected = (window.getSelection()?.toString() ?? "").length > 0;
+        if (moved || selected) return; // użytkownik zaznaczał, nie klikał
+
+        let target = i;
+        if (editingIndex !== null) {
+          // Zatwierdzenie edytowanego bloku może go rozbić na kilka —
+          // indeks klikniętego bloku przesuwa się o różnicę.
+          const wasBefore = editingIndex < i;
+          const before = blocks.length;
+          commitEdit();
+          if (wasBefore) target = i + (blocks.length - before);
+        }
+        editBlock(target, caret);
+      };
+      document.addEventListener("mouseup", onUp, true);
     });
     contentEl.appendChild(div);
   });
@@ -799,13 +834,30 @@ function commitEdit() {
   editingIndex = null;
 
   const newSrc = ta.value;
+  const wasText = docText();
   if (newSrc !== blocks[index]) {
     pushHistory();
     setDirty(true);
   }
 
+  // Pusty wynik oznaczałby usunięcie bloku i przesunięcie wszystkich kolejnych
+  // indeksów — a wtedy klik w sąsiedni blok trafiał w cudzą treść i ją nadpisywał.
   const replacement = splitBlocks(newSrc);
-  blocks.splice(index, 1, ...replacement);
+  if (replacement.length) {
+    blocks.splice(index, 1, ...replacement);
+  } else if (blocks.length > 1) {
+    blocks.splice(index, 1);
+  } else {
+    blocks[index] = "";
+  }
+  // Ostatnia linia obrony: jeśli zatwierdzenie bloku miałoby skasować spory
+  // kawałek dokumentu, cofnij zmianę i powiedz o tym, zamiast po cichu zjeść tekst.
+  const lost = wasText.length - docText().length;
+  if (lost > 200 && newSrc.length >= blocks[index]?.length) {
+    blocks = splitBlocks(wasText);
+    toast(t("blockGuard"), "error");
+  }
+
   const scroll = contentEl.parentElement!.scrollTop;
   render();
   contentEl.parentElement!.scrollTop = scroll;
@@ -1222,7 +1274,7 @@ async function saveFile() {
     await addRecent(target);
   }
   try {
-    await invoke("write_file", { path: target, content: docText() });
+    await call("write_file", { path: target, content: docText() });
     setDirty(false);
     renderSidebar();
   } catch (e) {

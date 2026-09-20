@@ -230,6 +230,13 @@ fn git_publish(repo: String, message: String) -> Result<String, String> {
 
 #[tauri::command]
 fn write_file(path: String, content: String) -> Result<(), String> {
+    // Przed nadpisaniem trzymaj poprzednią wersję obok (plik.md.bak).
+    // Kosztuje tyle co nic, a ratuje przed pomyłką albo błędem edytora.
+    if let Ok(old) = fs::read(&path) {
+        if !old.is_empty() && old.len() as f64 > content.len() as f64 * 1.5 {
+            let _ = fs::write(format!("{}.bak", path), &old);
+        }
+    }
     fs::write(&path, content).map_err(|e| e.to_string())
 }
 

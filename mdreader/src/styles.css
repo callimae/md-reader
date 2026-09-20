@@ -805,7 +805,68 @@ mark.search-hit.current {
 
 .front-matter .fm-key {
   color: var(--accent);
-  min-width: 4.5em;
+  min-width: 5.5em;
+  flex-shrink: 0;
+}
+
+.front-matter .fm-val {
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.front-matter .fm-val:hover {
+  background: var(--block-hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.front-matter .fm-val:empty::before {
+  content: "—";
+  color: var(--fg-muted);
+}
+
+.fm-input {
+  width: 100%;
+  background: var(--editor-bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 5px;
+  margin: -3px 0;
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+}
+
+.fm-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.fm-add-btn {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-family: inherit;
+  font-size: 0.95em;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.fm-add-btn:hover {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--accent);
 }
 
 /* Busy publish button */

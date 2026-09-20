@@ -28,6 +28,23 @@ const md = new MarkdownIt({
   },
 });
 
+// Hugo używa shortcode'ów, których markdown nie zna — bez tego w podglądzie
+// widać surowe {{< ... >}} zamiast treści. Podmieniamy je na czytelny odpowiednik
+// tylko na czas renderowania; w źródle bloku zostają nietknięte.
+function expandShortcodes(src: string): string {
+  return (
+    src
+      // [tekst]({{< relref "/sciezka" >}}) → [tekst](/sciezka)
+      .replace(/\{\{<\s*relref\s+["']?([^"'>]+?)["']?\s*>\}\}/g, (_m, path) => String(path).trim())
+      // {{< figure src="..." title="..." >}} → obrazek markdown
+      .replace(/\{\{<\s*figure\s+([^>]*?)\s*>\}\}/g, (_m, attrs) => {
+        const src2 = /src=["']([^"']+)["']/.exec(String(attrs))?.[1] ?? "";
+        const alt = /(?:title|alt|caption)=["']([^"']*)["']/.exec(String(attrs))?.[1] ?? "";
+        return src2 ? `![${alt}](${src2})` : String(_m);
+      })
+  );
+}
+
 // Obrazki: ścieżki z repo (Hugo static/) i względne wobec pliku → asset protocol.
 const defaultImageRule =
   md.renderer.rules.image ??
@@ -499,6 +516,126 @@ function frontMatterInfo(): { isFrontMatter: boolean; draft: boolean | null } {
   return { isFrontMatter: true, draft: m ? m[1] === "true" : null };
 }
 
+// Pola, które warto mieć w każdym wpisie — brakujące proponujemy do dodania.
+const FM_SUGGESTED = ["title", "description", "date", "draft"];
+
+function parseFrontMatter(src: string): { key: string; value: string }[] {
+  return src
+    .split("\n")
+    .slice(1, -1)
+    .map((line) => {
+      const sep = line.indexOf(":");
+      return sep > 0
+        ? { key: line.slice(0, sep).trim(), value: line.slice(sep + 1).trim() }
+        : { key: "", value: line };
+    });
+}
+
+function buildFrontMatter(fields: { key: string; value: string }[]): string {
+  const body = fields
+    .filter((f) => f.key || f.value)
+    .map((f) => (f.key ? `${f.key}: ${f.value}` : f.value))
+    .join("\n");
+  return `---\n${body}\n---`;
+}
+
+function setFrontMatterField(key: string, value: string) {
+  const fields = parseFrontMatter(blocks[0]);
+  const existing = fields.find((f) => f.key === key);
+  const quoted = /^(title|description)$/.test(key) && !/^["']/.test(value) && value !== "";
+  const stored = quoted ? `"${value.replace(/"/g, '\\"')}"` : value;
+
+  if (existing) {
+    if (existing.value === stored) return;
+    existing.value = stored;
+  } else {
+    fields.push({ key, value: stored });
+  }
+  pushHistory();
+  blocks[0] = buildFrontMatter(fields);
+  setDirty(true);
+  render();
+}
+
+function renderFrontMatter(div: HTMLDivElement, src: string) {
+  div.classList.add("front-matter");
+  const fields = parseFrontMatter(src);
+
+  for (const field of fields) {
+    const row = document.createElement("div");
+    row.className = "fm-row";
+
+    const key = document.createElement("span");
+    key.className = "fm-key";
+    key.textContent = field.key;
+    key.dataset.key = field.key;
+
+    const val = document.createElement("span");
+    val.className = "fm-val";
+    // Cudzysłowy to składnia YAML — w podglądzie tylko przeszkadzają.
+    val.textContent = field.value.replace(/^["']|["']$/g, "");
+    val.title = t("fmEditHint");
+    val.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editFrontMatterField(val, field.key);
+    });
+
+    row.append(key, val);
+    div.appendChild(row);
+  }
+
+  const missing = FM_SUGGESTED.filter((k) => !fields.some((f) => f.key === k));
+  if (missing.length) {
+    const add = document.createElement("div");
+    add.className = "fm-add";
+    for (const key of missing) {
+      const btn = document.createElement("button");
+      btn.className = "fm-add-btn";
+      btn.textContent = `+ ${key}`;
+      btn.title = t("fmAddHint");
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setFrontMatterField(key, key === "draft" ? "true" : "");
+        // Od razu wejdź w edycję świeżo dodanego pola.
+        window.setTimeout(() => {
+          const fresh = contentEl.querySelector<HTMLElement>(
+            `.fm-row .fm-key[data-key="${key}"] + .fm-val`,
+          );
+          fresh?.click();
+        }, 0);
+      });
+      add.appendChild(btn);
+    }
+    div.appendChild(add);
+  }
+}
+
+function editFrontMatterField(valEl: HTMLElement, key: string) {
+  if (valEl.querySelector("input")) return;
+  const current = valEl.textContent ?? "";
+  const input = document.createElement("input");
+  input.className = "fm-input";
+  input.value = current;
+
+  const finish = (save: boolean) => {
+    input.removeEventListener("blur", onBlur);
+    if (save && input.value !== current) setFrontMatterField(key, input.value.trim());
+    else render();
+  };
+  const onBlur = () => finish(true);
+  input.addEventListener("blur", onBlur);
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") finish(true);
+    else if (e.key === "Escape") finish(false);
+  });
+
+  valEl.textContent = "";
+  valEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
 function wordsLabel(n: number): string {
   if (settings.lang === "en") return n === 1 ? "word" : "words";
   if (n === 1) return "słowo";
@@ -647,22 +784,11 @@ function render() {
     div.className = "block";
     div.dataset.index = String(i);
     if (i === 0 && isFrontMatter) {
-      div.classList.add("front-matter");
-      for (const line of src.split("\n").slice(1, -1)) {
-        const row = document.createElement("div");
-        row.className = "fm-row";
-        const sep = line.indexOf(":");
-        const key = document.createElement("span");
-        key.className = "fm-key";
-        key.textContent = sep > 0 ? line.slice(0, sep) : "";
-        const val = document.createElement("span");
-        val.textContent = sep > 0 ? line.slice(sep + 1).trim() : line;
-        row.append(key, val);
-        div.appendChild(row);
-      }
-    } else {
-      div.innerHTML = md.render(src);
+      renderFrontMatter(div, src);
+      contentEl.appendChild(div);
+      return; // front matter ma własną edycję pól, nie blokową
     }
+    div.innerHTML = md.render(expandShortcodes(src));
     // Edycję włącza dopiero kliknięcie bez przeciągnięcia — inaczej nie dałoby
     // się swobodnie zaznaczać tekstu myszą (także przez kilka bloków).
     div.addEventListener("mousedown", (e) => {

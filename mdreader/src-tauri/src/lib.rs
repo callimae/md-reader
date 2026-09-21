@@ -1,5 +1,15 @@
 use std::fs;
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
+use tauri::{Emitter, Manager};
+
+/// Uchwyt na aktywnego obserwatora katalogu — trzymamy go, żeby nie został
+/// posprzątany przez Rusta i żeby móc go wymienić przy zmianie folderu.
+#[derive(Default)]
+struct Watcher(Mutex<Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>>);
 
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
@@ -176,6 +186,58 @@ fn is_demo() -> bool {
     std::env::args().any(|a| a == "--demo")
 }
 
+/// Zaczyna obserwować katalog repozytorium i wysyła do frontendu zdarzenie
+/// "tree-changed", gdy pliki zmienią się poza aplikacją (np. `hugo new`, git).
+#[tauri::command]
+fn watch_workspace(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let state = app.state::<Watcher>();
+    let mut slot = state.0.lock().map_err(|e| e.to_string())?;
+    *slot = None; // zatrzymaj poprzedni obserwator
+
+    if path.is_empty() {
+        return Ok(());
+    }
+    let root = std::path::Path::new(&path).to_path_buf();
+    if !root.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+
+    let handle = app.clone();
+    let mut debouncer = new_debouncer(Duration::from_millis(600), move |res| {
+        let Ok(events) = res else { return };
+        let events: Vec<notify_debouncer_mini::DebouncedEvent> = events;
+        // Interesują nas tylko pliki tekstowe i katalogi — bez .git i śmieci.
+        let relevant = events.iter().any(|e| {
+            if e.kind != DebouncedEventKind::Any {
+                return false;
+            }
+            let p = &e.path;
+            if p.components().any(|c| {
+                let s = c.as_os_str().to_string_lossy();
+                s.starts_with('.') || SKIP_DIRS.contains(&s.as_ref())
+            }) {
+                return false;
+            }
+            p.is_dir()
+                || p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| TEXT_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false)
+        });
+        if relevant {
+            let _ = handle.emit("tree-changed", ());
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    debouncer
+        .watcher()
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())?;
+    *slot = Some(debouncer);
+    Ok(())
+}
+
 #[tauri::command]
 fn home_dir() -> String {
     std::env::var("USERPROFILE")
@@ -243,6 +305,7 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(Watcher::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -257,6 +320,7 @@ pub fn run() {
             startup_file,
             is_demo,
             home_dir,
+            watch_workspace,
             git_publish
         ])
         .run(tauri::generate_context!())

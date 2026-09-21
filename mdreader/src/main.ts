@@ -2,6 +2,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js/lib/common";
 import { makeT, type Lang } from "./i18n";
@@ -342,6 +343,7 @@ function applyTexts() {
   $("#tab-files").textContent = t("tabFiles");
   $("#tab-recent").textContent = t("tabRecent");
   $("#tab-search").textContent = t("tabSearch");
+  $("#refresh-btn").title = t("refreshTree");
   $<HTMLInputElement>("#wsearch-input").placeholder = t("searchRepoPlaceholder");
   $<HTMLInputElement>("#search-input").placeholder = t("findPlaceholder");
   $("#search-prev").title = t("findPrev");
@@ -1021,7 +1023,17 @@ async function openFolder() {
   expandedDirs.clear();
   updateWorkspaceName();
   await loadTree();
+  await startWatching();
   showTab("files");
+}
+
+// Ręczne odświeżenie — zachowuje rozwinięte katalogi, tylko dociąga nową zawartość.
+async function refreshTree(manual = false) {
+  const btn = $("#refresh-btn");
+  btn.classList.add("spinning");
+  await loadTree();
+  window.setTimeout(() => btn.classList.remove("spinning"), 400);
+  if (manual) toast(t("treeRefreshed"));
 }
 
 async function loadTree() {
@@ -1042,6 +1054,17 @@ async function loadTree() {
     if (node.dir && node.name === "content") expandedDirs.add(node.path);
   }
   renderTree();
+}
+
+// Nasłuch zmian na dysku: pliki utworzone poza aplikacją (hugo new, git pull,
+// kopiowanie w Eksploratorze) pojawiają się w drzewie bez restartu.
+async function startWatching() {
+  if (demo) return;
+  try {
+    await invoke("watch_workspace", { path: settings.workspacePath });
+  } catch (e) {
+    console.error("watch_workspace:", e);
+  }
 }
 
 function expandAncestorsOf(path: string, nodes: TreeNode[]): boolean {
@@ -1437,6 +1460,9 @@ window.addEventListener("keydown", (e) => {
       e.preventDefault();
       redo();
     }
+  } else if (e.key === "F5") {
+    e.preventDefault();
+    refreshTree(true);
   } else if (e.key === "Escape" && searchOpen) {
     closeSearch();
   }
@@ -1451,6 +1477,7 @@ $("#draft-pill").addEventListener("click", toggleDraft);
 $("#tab-files").addEventListener("click", () => showTab("files"));
 $("#tab-recent").addEventListener("click", () => showTab("recent"));
 $("#tab-search").addEventListener("click", () => showTab("search"));
+$("#refresh-btn").addEventListener("click", () => refreshTree(true));
 
 $<HTMLInputElement>("#wsearch-input").addEventListener("input", () => {
   window.clearTimeout(wsearchTimer);
@@ -1485,7 +1512,11 @@ $("#search-close").addEventListener("click", closeSearch);
   applySettings();
   updateTitle();
   await loadTree();
+  await startWatching();
   showTab(tree.length ? "files" : "recent");
+
+  // Zmiany na dysku poza aplikacją odświeżają drzewo same.
+  await listen("tree-changed", () => refreshTree());
 
   if (demo) {
     await openFile(DEMO_OPEN);

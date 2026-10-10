@@ -344,6 +344,7 @@ function applyTexts() {
   $("#tab-recent").textContent = t("tabRecent");
   $("#tab-search").textContent = t("tabSearch");
   $("#refresh-btn").title = t("refreshTree");
+  $("#history-btn").title = t("historyOpen");
   $<HTMLInputElement>("#wsearch-input").placeholder = t("searchRepoPlaceholder");
   $<HTMLInputElement>("#search-input").placeholder = t("findPlaceholder");
   $("#search-prev").title = t("findPrev");
@@ -758,6 +759,58 @@ async function publishBlog() {
     toast(`${t("publishFail")}\n${e}`, "error");
   } finally {
     btn.classList.remove("busy");
+  }
+}
+
+// ---------- version history ----------
+
+async function openHistory() {
+  if (!filePath || demo) return;
+  const list = $("#h-list");
+  $("#h-title").textContent = t("historyTitle");
+  $("#h-hint").textContent = t("historyHint");
+  $("#h-close").textContent = t("close");
+  list.innerHTML = "";
+
+  let versions: [string, number, number][] = [];
+  try {
+    versions = await invoke<[string, number, number][]>("list_history", { path: filePath });
+  } catch (e) {
+    console.error(e);
+  }
+
+  if (!versions.length) {
+    list.innerHTML = `<div class="h-empty">${t("historyEmpty")}</div>`;
+  } else {
+    for (const [vpath, stamp, size] of versions) {
+      const row = document.createElement("button");
+      row.className = "h-row";
+      const when = new Date(stamp * 1000);
+      const date = document.createElement("span");
+      date.className = "h-when";
+      date.textContent = when.toLocaleString(settings.lang === "pl" ? "pl-PL" : "en-GB");
+      const meta = document.createElement("span");
+      meta.className = "h-size";
+      meta.textContent = `${size} ${t("chars")}`;
+      row.append(date, meta);
+      row.addEventListener("click", () => restoreVersion(vpath));
+      list.appendChild(row);
+    }
+  }
+  $("#history-overlay").hidden = false;
+}
+
+async function restoreVersion(versionPath: string) {
+  try {
+    const text = await invoke<string>("read_file", { path: versionPath });
+    pushHistory(); // przywrócenie da się cofnąć Ctrl+Z
+    blocks = splitBlocks(text);
+    setDirty(true);
+    render();
+    $("#history-overlay").hidden = true;
+    toast(t("historyRestored"), "success");
+  } catch (e) {
+    toast(`${t("openFail")}\n${e}`, "error");
   }
 }
 
@@ -1460,6 +1513,9 @@ window.addEventListener("keydown", (e) => {
       e.preventDefault();
       redo();
     }
+  } else if (e.ctrlKey && e.key.toLowerCase() === "h") {
+    e.preventDefault();
+    openHistory();
   } else if (e.key === "F5") {
     e.preventDefault();
     refreshTree(true);
@@ -1472,12 +1528,17 @@ $("#open-btn").addEventListener("click", openDialog);
 $("#open-folder-btn").addEventListener("click", openFolder);
 $("#workspace-name").addEventListener("click", openFolder);
 $("#new-post-btn").addEventListener("click", newPost);
+$("#history-btn").addEventListener("click", openHistory);
 $("#publish-btn").addEventListener("click", publishBlog);
 $("#draft-pill").addEventListener("click", toggleDraft);
 $("#tab-files").addEventListener("click", () => showTab("files"));
 $("#tab-recent").addEventListener("click", () => showTab("recent"));
 $("#tab-search").addEventListener("click", () => showTab("search"));
 $("#refresh-btn").addEventListener("click", () => refreshTree(true));
+$("#h-close").addEventListener("click", () => ($("#history-overlay").hidden = true));
+$("#history-overlay").addEventListener("mousedown", (e) => {
+  if (e.target === $("#history-overlay")) $("#history-overlay").hidden = true;
+});
 
 $<HTMLInputElement>("#wsearch-input").addEventListener("input", () => {
   window.clearTimeout(wsearchTimer);

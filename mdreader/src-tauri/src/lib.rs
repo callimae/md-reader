@@ -31,7 +31,7 @@ struct TreeNode {
 }
 
 // Katalogi generowane/ciężkie, których nie ma sensu pokazywać w drzewie.
-const SKIP_DIRS: [&str; 4] = ["node_modules", "target", "public", "resources"];
+const SKIP_DIRS: [&str; 5] = ["node_modules", "target", "public", "resources", ".mdreader-history"];
 const TEXT_EXTS: [&str; 3] = ["md", "markdown", "txt"];
 
 fn read_tree(dir: &std::path::Path, depth: u32) -> Vec<TreeNode> {
@@ -290,16 +290,75 @@ fn git_publish(repo: String, message: String) -> Result<String, String> {
     Ok("published".into())
 }
 
-#[tauri::command]
-fn write_file(path: String, content: String) -> Result<(), String> {
-    // Przed nadpisaniem trzymaj poprzednią wersję obok (plik.md.bak).
-    // Kosztuje tyle co nic, a ratuje przed pomyłką albo błędem edytora.
-    if let Ok(old) = fs::read(&path) {
-        if !old.is_empty() && old.len() as f64 > content.len() as f64 * 1.5 {
-            let _ = fs::write(format!("{}.bak", path), &old);
+/// Katalog z historią wersji pliku: <repo>/.mdreader-history/<nazwa>/
+fn history_dir(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_string_lossy().to_string();
+    Some(parent.join(".mdreader-history").join(name))
+}
+
+/// Zachowuje poprzednią zawartość pliku przed nadpisaniem. Bez progów
+/// i bez zgadywania: każda wersja ląduje w historii ze znacznikiem czasu,
+/// bo utrata tekstu jest dużo droższa niż kilka kilobajtów na dysku.
+fn snapshot(path: &std::path::Path, old: &[u8]) {
+    if old.is_empty() {
+        return;
+    }
+    let Some(dir) = history_dir(path) else { return };
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = fs::write(dir.join(format!("{}.md", stamp)), old);
+
+    // Zostaw 50 najnowszych wersji — reszta idzie w zapomnienie.
+    if let Ok(entries) = fs::read_dir(&dir) {
+        let mut files: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        if files.len() > 50 {
+            files.sort();
+            for old_file in &files[..files.len() - 50] {
+                let _ = fs::remove_file(old_file);
+            }
         }
     }
-    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_file(path: String, content: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if let Ok(old) = fs::read(p) {
+        // Nie zaśmiecaj historii zapisami, które niczego nie zmieniają.
+        if old == content.as_bytes() {
+            return Ok(());
+        }
+        snapshot(p, &old);
+    }
+    fs::write(p, content).map_err(|e| e.to_string())
+}
+
+/// Lista zapisanych wersji pliku, od najnowszej.
+#[tauri::command]
+fn list_history(path: String) -> Result<Vec<(String, u64, usize)>, String> {
+    let Some(dir) = history_dir(std::path::Path::new(&path)) else {
+        return Ok(Vec::new());
+    };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<(String, u64, usize)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let stamp: u64 = p.file_stem()?.to_str()?.parse().ok()?;
+            let len = e.metadata().ok()?.len() as usize;
+            Some((p.to_string_lossy().to_string(), stamp, len))
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1));
+    Ok(out)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -321,6 +380,7 @@ pub fn run() {
             is_demo,
             home_dir,
             watch_workspace,
+            list_history,
             git_publish
         ])
         .run(tauri::generate_context!())

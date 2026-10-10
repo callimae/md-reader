@@ -817,6 +817,16 @@ async function restoreVersion(versionPath: string) {
 // ---------- rendering ----------
 
 function render() {
+  // Ostatnia linia obrony: gdyby ktokolwiek wywołał render() w trakcie edycji
+  // bez zatwierdzenia, przepisz zawartość pola do bloków zamiast ją porzucić.
+  if (editingIndex !== null) {
+    const live = contentEl.querySelector<HTMLTextAreaElement>(".block-editor");
+    if (live && live.value !== blocks[editingIndex]) {
+      const replacement = splitBlocks(live.value);
+      if (replacement.length) blocks.splice(editingIndex, 1, ...replacement);
+      setDirty(true);
+    }
+  }
   editingIndex = null;
   contentEl.innerHTML = "";
 
@@ -881,7 +891,11 @@ function render() {
   tail.title = t("addBlock");
   tail.addEventListener("mousedown", (e) => {
     e.preventDefault();
-    blocks.push("");
+    // Najpierw zatwierdź blok, który jest właśnie edytowany — bez tego
+    // render() usunąłby textarea razem z niezapisanym tekstem.
+    if (editingIndex !== null) commitEdit();
+    // Nie mnóż pustych akapitów, gdy ostatni i tak jest pusty.
+    if (blocks[blocks.length - 1]?.trim() !== "") blocks.push("");
     render();
     editBlock(blocks.length - 1);
   });
